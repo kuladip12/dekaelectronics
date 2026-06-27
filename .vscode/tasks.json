@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "npm",
+			"script": "install",
+			"path": "deka-store-app",
+			"group": "clean",
+			"problemMatcher": [],
+			"label": "npm: install - deka-store-app",
+			"detail": "install dependencies from package"
+		}
+	]
+}
