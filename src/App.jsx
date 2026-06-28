@@ -825,29 +825,38 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
     const q = parseInt(qty, 10);
     if (!q || q <= 0) return toast("Enter a valid quantity received.", "error");
 
-    const next = { ...state };
-    const p = next.products.find(x => x.id === selectedProduct.id);
-    const prevQty = p.quantity;
-    const prevPurchase = p.purchasePrice;
-    const prevSelling = p.sellingPrice;
-    p.quantity += q;
-    if (newPurchasePrice !== "" && !isNaN(+newPurchasePrice) && +newPurchasePrice > 0) p.purchasePrice = +newPurchasePrice;
-    if (newSellingPrice !== "" && !isNaN(+newSellingPrice) && +newSellingPrice > 0) p.sellingPrice = +newSellingPrice;
+    const original = state.products.find(x => x.id === selectedProduct.id);
+    if (!original) return toast("Product not found.", "error");
 
-    next.stockLog = [...(next.stockLog || []), {
-      id: uid(),
-      date: purchaseDate ? new Date(purchaseDate).toISOString() : new Date().toISOString(),
-      productId: p.id, productName: p.name, category: p.category,
-      qtyAdded: q, qtyBefore: prevQty, qtyAfter: p.quantity,
-      purchasePriceBefore: prevPurchase, purchasePriceAfter: p.purchasePrice,
-      sellingPriceBefore: prevSelling, sellingPriceAfter: p.sellingPrice,
-      supplierName: supplier.trim(), supplierPhone: supplierPhone.trim(),
-      invoiceNo: invoiceNo.trim(), note: note.trim(),
-    }];
+    const prevQty = original.quantity;
+    const prevPurchase = original.purchasePrice;
+    const prevSelling = original.sellingPrice;
+    const nextQty = prevQty + q;
+    const nextPurchase = (newPurchasePrice !== "" && !isNaN(+newPurchasePrice) && +newPurchasePrice > 0) ? +newPurchasePrice : prevPurchase;
+    const nextSelling = (newSellingPrice !== "" && !isNaN(+newSellingPrice) && +newSellingPrice > 0) ? +newSellingPrice : prevSelling;
+
+    // Build a brand-new product object (not a mutation of `original`) so the
+    // sync layer can tell old vs new apart and actually push the update.
+    const updated = { ...original, quantity: nextQty, purchasePrice: nextPurchase, sellingPrice: nextSelling };
+
+    const next = {
+      ...state,
+      products: state.products.map(x => x.id === updated.id ? updated : x),
+      stockLog: [...(state.stockLog || []), {
+        id: uid(),
+        date: purchaseDate ? new Date(purchaseDate).toISOString() : new Date().toISOString(),
+        productId: updated.id, productName: updated.name, category: updated.category,
+        qtyAdded: q, qtyBefore: prevQty, qtyAfter: updated.quantity,
+        purchasePriceBefore: prevPurchase, purchasePriceAfter: updated.purchasePrice,
+        sellingPriceBefore: prevSelling, sellingPriceAfter: updated.sellingPrice,
+        supplierName: supplier.trim(), supplierPhone: supplierPhone.trim(),
+        invoiceNo: invoiceNo.trim(), note: note.trim(),
+      }],
+    };
     await onSave(next);
-    toast(`Added ${q} ${p.unit || "pcs"} to "${p.name}". New stock: ${p.quantity}.`);
+    toast(`Added ${q} ${updated.unit || "pcs"} to "${updated.name}". New stock: ${updated.quantity}.`);
     setQty(""); setInvoiceNo(""); setNote("");
-    setSelectedProduct({ ...p });
+    setSelectedProduct(updated);
   };
 
   const log = [...(state.stockLog || [])].sort((a, b) => new Date(b.date) - new Date(a.date)).filter(l => {
@@ -1011,9 +1020,14 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
       subtotal, discount: disc, total: Math.max(0, subtotal - disc),
       paymentMode: payMode,
     };
-    const next = { ...state };
-    cart.forEach(c => { const p = next.products.find(x => x.id === c.productId); if (p) p.quantity = Math.max(0, p.quantity - c.qty); });
-    next.sales = [...next.sales, sale];
+    const next = {
+      ...state,
+      products: state.products.map(p => {
+        const c = cart.find(c => c.productId === p.id);
+        return c ? { ...p, quantity: Math.max(0, p.quantity - c.qty) } : p;
+      }),
+      sales: [...state.sales, sale],
+    };
     await onSave(next);
     setCart([]); setCustomer(""); setPhone(""); setDiscount(0);
     setBillModal(sale);
