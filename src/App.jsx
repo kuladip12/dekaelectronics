@@ -59,7 +59,9 @@ async function syncDiff(prevState, nextState) {
   const toDeleteIds = [...prevProducts.keys()].filter(id => !nextProducts.has(id));
 
   const prevSaleIds = new Set(prevState.sales.map(s => s.id));
+  const nextSaleIds = new Set(nextState.sales.map(s => s.id));
   const newSales = nextState.sales.filter(s => !prevSaleIds.has(s.id));
+  const toDeleteSaleIds = [...prevSaleIds].filter(id => !nextSaleIds.has(id));
 
   const prevLogIds = new Set((prevState.stockLog || []).map(l => l.id));
   const nextLogIds = new Set((nextState.stockLog || []).map(l => l.id));
@@ -70,6 +72,7 @@ async function syncDiff(prevState, nextState) {
   if (toUpsert.length) ops.push(supabase.from("products").upsert(toUpsert));
   if (toDeleteIds.length) ops.push(supabase.from("products").delete().in("id", toDeleteIds));
   if (newSales.length) ops.push(supabase.from("sales").insert(newSales));
+  if (toDeleteSaleIds.length) ops.push(supabase.from("sales").delete().in("id", toDeleteSaleIds));
   if (newLogs.length) ops.push(supabase.from("stock_log").insert(newLogs));
   if (toDeleteLogIds.length) ops.push(supabase.from("stock_log").delete().in("id", toDeleteLogIds));
 
@@ -1181,6 +1184,17 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
 
   const recent = [...state.sales].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 12);
 
+  const deleteInvoice = async (sale) => {
+    const itemMap = new Map(sale.items.map(it => [it.productId, it]));
+    const nextProducts = state.products.map(p => {
+      const it = itemMap.get(p.id);
+      return it ? { ...p, quantity: (p.quantity || 0) + (it.qty || 0) } : p;
+    });
+    const next = { ...state, products: nextProducts, sales: state.sales.filter(s => s.id !== sale.id) };
+    await onSave(next);
+    toast(`Deleted invoice ${sale.invoiceNo}. Stock restored.`);
+  };
+
   return (
     <>
       {confirm && <ConfirmModal message={confirm.msg} onYes={() => { confirm.onYes(); setConfirm(null); }} onNo={() => setConfirm(null)} />}
@@ -1262,7 +1276,7 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Payment</th><th className="right">Total</th><th></th></tr></thead>
+              <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Payment</th><th className="right">Total</th><th></th><th></th></tr></thead>
               <tbody>
                 {recent.map(s => (
                   <tr key={s.id}>
@@ -1272,6 +1286,16 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
                     <td><span className="badge badge-blue">{s.paymentMode}</span></td>
                     <td className="right mono">{money(s.total)}</td>
                     <td><button className="btn btn-outline btn-sm" onClick={() => setBillModal(s)}>View / Print</button></td>
+                    <td>
+                      <button
+                        className="btn-ghost"
+                        title="Delete this invoice"
+                        onClick={() => setConfirm({
+                          msg: `Delete invoice ${s.invoiceNo}? This will restore ${s.items.reduce((a, it) => a + it.qty, 0)} unit(s) back to stock. This can't be undone.`,
+                          onYes: () => deleteInvoice(s),
+                        })}
+                      >🗑️</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
