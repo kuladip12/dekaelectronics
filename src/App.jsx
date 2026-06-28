@@ -62,13 +62,16 @@ async function syncDiff(prevState, nextState) {
   const newSales = nextState.sales.filter(s => !prevSaleIds.has(s.id));
 
   const prevLogIds = new Set((prevState.stockLog || []).map(l => l.id));
+  const nextLogIds = new Set((nextState.stockLog || []).map(l => l.id));
   const newLogs = (nextState.stockLog || []).filter(l => !prevLogIds.has(l.id));
+  const toDeleteLogIds = [...prevLogIds].filter(id => !nextLogIds.has(id));
 
   const ops = [];
   if (toUpsert.length) ops.push(supabase.from("products").upsert(toUpsert));
   if (toDeleteIds.length) ops.push(supabase.from("products").delete().in("id", toDeleteIds));
   if (newSales.length) ops.push(supabase.from("sales").insert(newSales));
   if (newLogs.length) ops.push(supabase.from("stock_log").insert(newLogs));
+  if (toDeleteLogIds.length) ops.push(supabase.from("stock_log").delete().in("id", toDeleteLogIds));
 
   if (!ops.length) return true;
   const results = await Promise.all(ops);
@@ -307,10 +310,11 @@ const css = `
   .pos { color: var(--green); } .neg { color: var(--red); }
 
   @media print {
-    body > *:not(#bill-print-portal) { display: none !important; }
-    #bill-print-portal { display: block !important; position: static; background: none; padding: 0; }
-    #bill-print-portal .modal-box { box-shadow: none; max-width: 100%; }
-    .no-print { display: none !important; }
+    body * { visibility: hidden; }
+    #bill-print-portal, #bill-print-portal * { visibility: visible; }
+    #bill-print-portal { position: absolute; top: 0; left: 0; width: 100%; background: #fff; padding: 0; }
+    #bill-print-portal .modal-box { box-shadow: none; max-width: 100%; margin: 0 auto; }
+    .no-print { visibility: hidden !important; }
   }
 
   /* ── Phone-width refinements ── */
@@ -908,6 +912,7 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
   const [phKw, setPhKw] = useState("");
   const [phFrom, setPhFrom] = useState("");
   const [phTo, setPhTo] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const pickerKey = useRef(0);
 
   useEffect(() => {
@@ -973,6 +978,23 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
     setSelectedProduct(updated);
   };
 
+  const deleteEntry = async (l) => {
+    const product = state.products.find(x => x.id === l.productId);
+    let nextProducts = state.products;
+    if (product) {
+      // Only roll the price back if nothing has changed it since this entry —
+      // otherwise we'd clobber a legitimate, more recent price update.
+      const revertPurchase = product.purchasePrice === l.purchasePriceAfter ? l.purchasePriceBefore : product.purchasePrice;
+      const revertSelling = product.sellingPrice === l.sellingPriceAfter ? l.sellingPriceBefore : product.sellingPrice;
+      const updated = { ...product, quantity: Math.max(0, (product.quantity || 0) - (l.qtyAdded || 0)), purchasePrice: revertPurchase, sellingPrice: revertSelling };
+      nextProducts = state.products.map(x => x.id === product.id ? updated : x);
+    }
+    const next = { ...state, products: nextProducts, stockLog: (state.stockLog || []).filter(x => x.id !== l.id) };
+    await onSave(next);
+    toast(`Deleted purchase entry for "${l.productName}". Stock adjusted back.`);
+    setDeleteTarget(null);
+  };
+
   const log = [...(state.stockLog || [])].sort((a, b) => new Date(b.date) - new Date(a.date)).filter(l => {
     const k = (phKw || "").toLowerCase();
     return (!k || [l.productName, l.supplierName, l.invoiceNo, l.note].some(f => (f || "").toLowerCase().includes(k)))
@@ -1034,7 +1056,7 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
                 <tr>
                   <th>Date</th><th>Product</th><th>Category</th>
                   <th className="right">Qty added</th><th className="right">Stock after</th>
-                  <th className="right">Purchase ₹</th><th>Supplier</th><th>Invoice</th><th>Note</th>
+                  <th className="right">Purchase ₹</th><th>Supplier</th><th>Invoice</th><th>Note</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -1049,6 +1071,7 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
                     <td>{l.supplierName || "—"}{l.supplierPhone ? <span className="muted" style={{ fontSize: 11, display: "block" }}>{l.supplierPhone}</span> : null}</td>
                     <td className="mono" style={{ fontSize: 12 }}>{l.invoiceNo || "—"}</td>
                     <td className="muted" style={{ fontSize: 12 }}>{l.note || "—"}</td>
+                    <td><button className="btn-ghost" title="Delete this entry" onClick={() => setDeleteTarget(l)}>🗑️</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -1056,6 +1079,14 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
           </div>
         )}
       </div>
+
+      {deleteTarget && (
+        <ConfirmModal
+          message={`Delete this purchase entry? "${deleteTarget.productName}" stock will go back down by ${deleteTarget.qtyAdded}${deleteTarget.qtyAfter != null ? ` (from ${deleteTarget.qtyAfter} to ${Math.max(0, deleteTarget.qtyAfter - deleteTarget.qtyAdded)})` : ""}. This can't be undone.`}
+          onYes={() => deleteEntry(deleteTarget)}
+          onNo={() => setDeleteTarget(null)}
+        />
+      )}
     </>
   );
 }
