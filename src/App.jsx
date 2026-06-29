@@ -20,6 +20,43 @@ const fmtDateTime = (iso) => { const d = new Date(iso); return d.toLocaleDateStr
 const stockStatus = (p) => { if (p.quantity <= 0) return "out"; if (p.quantity <= (p.minStock || 0)) return "low"; return "in"; };
 const profitOf = (sale) => sale.items.reduce((s, it) => s + (it.price - (it.purchasePrice || 0)) * it.qty, 0);
 
+/* ─── SHOP LETTERHEAD (matches the printed GST tax-invoice pad) ─── */
+const SHOP = {
+  name: "DEKA ELECTRONIC",
+  addressLine: "TIHU, P.O.- TIHU- 781371, DIST.- NALBARI (ASSAM)",
+  phone: "9678062585 / 8638807114",
+  gstin: "18AIIPD7387H2ZV",
+};
+
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-IN");
+const num2 = (n) => (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/* Converts a rupee amount into words, Indian numbering (lakh/crore), for the
+   "Invoice Value (In Words)" line on the tax invoice. */
+function numberToWordsINR(amount) {
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  const twoDigits = (n) => { if (n < 20) return ones[n]; const t = Math.floor(n / 10), o = n % 10; return tens[t] + (o ? " " + ones[o] : ""); };
+  const threeDigits = (n) => { const h = Math.floor(n / 100), r = n % 100; return (h ? ones[h] + " Hundred" + (r ? " " : "") : "") + (r ? twoDigits(r) : ""); };
+  const wholeToWords = (num) => {
+    if (num === 0) return "Zero";
+    let crore = Math.floor(num / 10000000); num %= 10000000;
+    let lakh = Math.floor(num / 100000); num %= 100000;
+    let thousand = Math.floor(num / 1000); num %= 1000;
+    const parts = [];
+    if (crore) parts.push(threeDigits(crore) + " Crore");
+    if (lakh) parts.push(threeDigits(lakh) + " Lakh");
+    if (thousand) parts.push(threeDigits(thousand) + " Thousand");
+    if (num) parts.push(threeDigits(num));
+    return parts.join(" ");
+  };
+  const rupees = Math.floor(amount || 0);
+  const paise = Math.round(((amount || 0) - rupees) * 100);
+  let words = "Rupees " + wholeToWords(rupees);
+  if (paise > 0) words += " and " + twoDigits(paise) + " Paise";
+  return words + " Only";
+}
+
 /* ─── SUPABASE DATA LAYER ───
    Tables (see supabase_schema.sql): products, sales, stock_log
    Reads/writes go straight to Postgres via RLS-protected, staff-only access.
@@ -305,6 +342,38 @@ const css = `
   .qty-inp { width: 60px; min-height: 38px; padding: 6px; text-align: center; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: var(--mono); }
   .price-inp { width: 86px; min-height: 38px; padding: 6px 7px; text-align: right; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: var(--mono); }
   .qty-inp:focus, .price-inp:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 2px rgba(232,163,61,.15); }
+  .text-inp { min-height: 38px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; font-family: var(--sans); width: 100%; min-width: 90px; }
+  .text-inp:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 2px rgba(232,163,61,.15); }
+
+  /* ── GST Tax Invoice (matches the printed letterhead pad) ── */
+  .tax-inv { font-size: 12px; color: #1a2540; }
+  .tax-inv-top { display: flex; justify-content: space-between; align-items: stretch; border: 1.5px solid var(--navy); flex-wrap: wrap; }
+  .tax-inv-shop { padding: 12px 14px; flex: 1 1 240px; }
+  .tax-inv-shop h2 { font-size: 19px; font-weight: 800; color: var(--navy); letter-spacing: .01em; }
+  .tax-inv-shop .addr { font-size: 11px; color: #3a4a6e; margin-top: 4px; line-height: 1.55; }
+  .tax-inv-shop .gstin { font-size: 12px; font-weight: 700; color: var(--navy); margin-top: 7px; letter-spacing: .03em; }
+  .tax-inv-meta { min-width: 220px; border-left: 1.5px solid var(--navy); }
+  .tax-inv-meta .tag { background: var(--navy); color: #fff; text-align: center; font-weight: 700; font-size: 11px; letter-spacing: .1em; padding: 4px; }
+  .tax-inv-meta-row { display: flex; justify-content: space-between; padding: 5px 10px; font-size: 11.5px; border-top: 1px solid #c7cee0; gap: 8px; }
+  .tax-inv-meta-row .v { font-weight: 700; }
+  .tax-inv-buyer { border: 1.5px solid var(--navy); border-top: none; padding: 7px 12px; font-size: 11.5px; line-height: 1.7; }
+  .tax-inv-buyer .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tax-inv-buyer .lbl { font-weight: 700; min-width: 62px; }
+  .tax-tbl { width: 100%; border-collapse: collapse; border: 1.5px solid var(--navy); font-size: 10.5px; margin-top: -1.5px; }
+  .tax-tbl th, .tax-tbl td { border: 1px solid #8a96b8; padding: 4px 5px; text-align: center; }
+  .tax-tbl thead th { background: #eef1f8; color: var(--navy); font-weight: 700; font-size: 9.5px; text-transform: uppercase; letter-spacing: .02em; }
+  .tax-tbl td.desc { text-align: left; }
+  .tax-tbl td.desc .ser { display: block; font-size: 9px; color: #5a6588; margin-top: 1px; }
+  .tax-tbl tbody tr.filler-row td { height: 17px; }
+  .tax-inv-bottom { border: 1.5px solid var(--navy); border-top: none; }
+  .tax-inv-words { display: flex; justify-content: space-between; padding: 7px 12px; font-size: 11.5px; border-bottom: 1px solid var(--navy); gap: 12px; flex-wrap: wrap; }
+  .tax-inv-words .total-box { font-weight: 800; white-space: nowrap; color: var(--navy); }
+  .tax-inv-note { padding: 6px 12px; font-size: 10.5px; border-bottom: 1px solid var(--navy); }
+  .tax-inv-sign { display: flex; justify-content: space-between; padding: 10px 12px 8px; font-size: 10.5px; gap: 14px; }
+  .tax-inv-sign .right { text-align: right; flex-shrink: 0; }
+  .tax-inv-sign .sig-line { margin-top: 30px; font-weight: 700; }
+  .tax-inv-fine { font-size: 9.5px; color: #5a6588; margin-top: 8px; line-height: 1.5; }
+  #bill-print-portal .modal-box { max-width: 800px; }
 
   /* ── Stars ── */
   .stars { color: var(--amber); font-size: 12px; letter-spacing: 1px; }
@@ -313,10 +382,12 @@ const css = `
   .pos { color: var(--green); } .neg { color: var(--red); }
 
   @media print {
+    @page { margin: 10mm; }
     body * { visibility: hidden; }
     #bill-print-portal, #bill-print-portal * { visibility: visible; }
     #bill-print-portal { position: absolute; top: 0; left: 0; width: 100%; background: #fff; padding: 0; }
-    #bill-print-portal .modal-box { box-shadow: none; max-width: 100%; margin: 0 auto; }
+    #bill-print-portal .modal-box { box-shadow: none; max-width: 100%; margin: 0 auto; padding: 0; }
+    #bill-print-portal .table-wrap { overflow: visible; }
     .no-print { visibility: hidden !important; }
   }
 
@@ -1097,6 +1168,10 @@ function PurchaseView({ state, onSave, toast, jumpToProductId, clearJump }) {
 function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
+  const [custAddress, setCustAddress] = useState("");
+  const [custGSTIN, setCustGSTIN] = useState("");
+  const [custStateCode, setCustStateCode] = useState("");
+  const [gstRate, setGstRate] = useState(18);
   const [cart, setCart] = useState([]);
   const [discount, setDiscount] = useState(0);
   const [payMode, setPayMode] = useState("Cash");
@@ -1128,7 +1203,7 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
         if (ex.qty >= p.quantity) { toast("No more stock.", "error"); return prev; }
         return prev.map(c => c.productId === p.id ? { ...c, qty: c.qty + 1 } : c);
       }
-      return [...prev, { productId: p.id, name: p.name, brand: p.brand || "", category: p.category, qty: 1, price: p.sellingPrice, purchasePrice: p.purchasePrice, stockAvail: p.quantity }];
+      return [...prev, { productId: p.id, name: p.name, brand: p.brand || "", category: p.category, qty: 1, price: p.sellingPrice, purchasePrice: p.purchasePrice, stockAvail: p.quantity, hsn: "", serial: "" }];
     });
     setBillSearch(""); setShowResults(false);
   };
@@ -1145,6 +1220,9 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
     const pr = parseFloat(v); if (isNaN(pr) || pr < 0) return;
     setCart(prev => prev.map(c => c.productId === id ? { ...c, price: pr } : c));
   };
+
+  const updateHsn = (id, v) => setCart(prev => prev.map(c => c.productId === id ? { ...c, hsn: v } : c));
+  const updateSerial = (id, v) => setCart(prev => prev.map(c => c.productId === id ? { ...c, serial: v } : c));
 
   const removeFromCart = (id) => setCart(prev => prev.filter(c => c.productId !== id));
 
@@ -1164,6 +1242,8 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
     const sale = {
       id: uid(), invoiceNo, date: new Date().toISOString(),
       customerName: customer.trim(), customerPhone: phone.trim(),
+      customerAddress: custAddress.trim(), customerGSTIN: custGSTIN.trim().toUpperCase(), customerStateCode: custStateCode.trim(),
+      gstRate: Number(gstRate) || 0,
       items: cart.map(c => ({ ...c, total: c.qty * c.price })),
       subtotal, discount: disc, total: Math.max(0, subtotal - disc),
       paymentMode: payMode,
@@ -1177,7 +1257,7 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
       sales: [...state.sales, sale],
     };
     await onSave(next);
-    setCart([]); setCustomer(""); setPhone(""); setDiscount(0);
+    setCart([]); setCustomer(""); setPhone(""); setCustAddress(""); setCustGSTIN(""); setCustStateCode(""); setDiscount(0);
     setBillModal(sale);
     toast(`Bill ${invoiceNo} generated.`);
   };
@@ -1230,17 +1310,29 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
           )}
         </div>
 
+        <details style={{ marginBottom: 16 }}>
+          <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: "var(--navy)" }}>🧾 GST / tax invoice details (optional)</summary>
+          <div className="grid cols-2" style={{ marginTop: 12 }}>
+            <div className="field"><label>Customer address</label><input value={custAddress} onChange={e => setCustAddress(e.target.value)} placeholder="Customer's billing address" /></div>
+            <div className="field"><label>Customer GSTIN</label><input value={custGSTIN} onChange={e => setCustGSTIN(e.target.value)} placeholder="If buyer is GST-registered" /></div>
+            <div className="field"><label>Customer state code</label><input value={custStateCode} onChange={e => setCustStateCode(e.target.value)} placeholder="e.g. 18 for Assam" /></div>
+            <div className="field"><label>GST rate for this bill (%)</label><input type="number" min={0} step={0.1} value={gstRate} onChange={e => setGstRate(e.target.value)} /></div>
+          </div>
+        </details>
+
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Product</th><th className="center">Qty</th><th className="right">Price (₹)</th><th className="right">Total (₹)</th><th></th></tr></thead>
+            <thead><tr><th>Product</th><th className="center">Qty</th><th className="right">Price (₹)</th><th>HSN code</th><th>Model / Serial No.</th><th className="right">Total (₹)</th><th></th></tr></thead>
             <tbody>
               {!cart.length ? (
-                <tr><td colSpan={5} className="empty" style={{ padding: "20px 10px" }}>Search and select products to add them to this bill.</td></tr>
+                <tr><td colSpan={7} className="empty" style={{ padding: "20px 10px" }}>Search and select products to add them to this bill.</td></tr>
               ) : cart.map(c => (
                 <tr key={c.productId}>
                   <td>{CAT_ICON[c.category] || "🔌"} {c.brand ? <strong>{c.brand}</strong> : null}{c.brand ? " — " : ""}{c.name}</td>
                   <td className="center"><input type="number" className="qty-inp" min={1} max={c.stockAvail} value={c.qty} onChange={e => updateQty(c.productId, e.target.value)} /></td>
                   <td className="right"><input type="number" className="price-inp" min={0} step={0.01} value={c.price} onChange={e => updatePrice(c.productId, e.target.value)} /></td>
+                  <td><input className="text-inp" value={c.hsn} onChange={e => updateHsn(c.productId, e.target.value)} placeholder="optional" /></td>
+                  <td><input className="text-inp" value={c.serial} onChange={e => updateSerial(c.productId, e.target.value)} placeholder="optional" /></td>
                   <td className="right mono">{money(c.qty * c.price)}</td>
                   <td className="center"><button className="btn-ghost" onClick={() => removeFromCart(c.productId)}>✕</button></td>
                 </tr>
@@ -1308,41 +1400,112 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
 }
 
 function BillModal({ sale, onClose }) {
+  const gstRate = Number(sale.gstRate) || 18;
+  const halfRate = gstRate / 2;
+  // If a lump discount was applied, spread it proportionally so the table's
+  // Total column still adds up to the actual amount the customer paid.
+  const discRatio = sale.subtotal > 0 ? sale.total / sale.subtotal : 1;
+  const rows = sale.items.map((it) => {
+    const lineTotal = it.qty * it.price * discRatio;
+    const taxable = lineTotal / (1 + gstRate / 100);
+    const tax = lineTotal - taxable;
+    return { ...it, lineTotal, taxable, cgst: tax / 2, sgst: tax / 2 };
+  });
+  const fillerCount = Math.max(0, 6 - rows.length);
+
   return (
     <div id="bill-print-portal" className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box">
-        <div className="bill-head">
-          <h3>DEKA ELECTRONICS</h3>
-          <div className="sub">AC · Fridge / Deep Freezer · Washing Machine · Fan · Other</div>
-        </div>
-        <div className="bill-meta">
-          <div>Invoice: <strong className="mono">{sale.invoiceNo}</strong></div>
-          <div>{fmtDateTime(sale.date)}</div>
-        </div>
-        {(sale.customerName || sale.customerPhone) && (
-          <div className="bill-meta">
-            <div>Customer: {sale.customerName || "—"}</div>
-            <div>{sale.customerPhone || ""}</div>
+        <div className="tax-inv">
+          <div className="tax-inv-top">
+            <div className="tax-inv-shop">
+              <h2>{SHOP.name}</h2>
+              <div className="addr">{SHOP.addressLine}<br />Con. No.- {SHOP.phone}</div>
+              <div className="gstin">GSTIN : {SHOP.gstin}</div>
+            </div>
+            <div className="tax-inv-meta">
+              <div className="tag">TAX INVOICE</div>
+              <div className="tax-inv-meta-row"><span>Invoice No.</span><span className="v mono">{sale.invoiceNo}</span></div>
+              <div className="tax-inv-meta-row"><span>Date</span><span className="v">{fmtDate(sale.date)}</span></div>
+            </div>
           </div>
-        )}
-        <table className="bill-tbl">
-          <thead><tr><th>Item</th><th className="center">Qty</th><th className="right">Price</th><th className="right">Total</th></tr></thead>
-          <tbody>
-            {sale.items.map((it, i) => (
-              <tr key={i}>
-                <td>{it.name}</td><td className="center">{it.qty}</td>
-                <td className="right mono">{money(it.price)}</td><td className="right mono">{money(it.qty * it.price)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="bill-totals">
-          <div className="bill-row"><span>Subtotal</span><span className="mono">{money(sale.subtotal)}</span></div>
-          <div className="bill-row"><span>Discount</span><span className="mono">−{money(sale.discount)}</span></div>
-          <div className="bill-row grand"><span>Grand total</span><span className="mono">{money(sale.total)}</span></div>
-          <div className="bill-row muted"><span>Payment mode</span><span>{sale.paymentMode}</span></div>
+
+          <div className="tax-inv-buyer">
+            <div className="row"><span className="lbl">Name:</span><span>{sale.customerName || "—"}</span></div>
+            <div className="row"><span className="lbl">Address:</span><span>{sale.customerAddress || "—"}</span></div>
+            <div className="row">
+              <span className="lbl">GSTIN:</span><span>{sale.customerGSTIN || "—"}</span>
+              <span className="lbl" style={{ marginLeft: "auto" }}>State Code:</span><span>{sale.customerStateCode || "—"}</span>
+            </div>
+          </div>
+
+          <div className="table-wrap" style={{ marginTop: 0 }}>
+            <table className="tax-tbl">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>Sl<br />No.</th>
+                  <th rowSpan={2}>Description of Goods</th>
+                  <th rowSpan={2}>HSN<br />Code</th>
+                  <th rowSpan={2}>Qnty.</th>
+                  <th rowSpan={2}>Taxable<br />Value</th>
+                  <th colSpan={2}>CGST</th>
+                  <th colSpan={2}>SGST</th>
+                  <th colSpan={2}>IGST</th>
+                  <th rowSpan={2}>Total</th>
+                </tr>
+                <tr><th>Rate</th><th>Amount</th><th>Rate</th><th>Amount</th><th>Rate</th><th>Amount</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((it, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td className="desc">
+                      {it.brand ? <strong>{it.brand}</strong> : null}{it.brand ? " — " : ""}{it.name}
+                      {it.serial ? <span className="ser">Sr/Model No: {it.serial}</span> : null}
+                    </td>
+                    <td>{it.hsn || "—"}</td>
+                    <td>{it.qty}</td>
+                    <td>{num2(it.taxable)}</td>
+                    <td>{halfRate.toFixed(1)}%</td>
+                    <td>{num2(it.cgst)}</td>
+                    <td>{halfRate.toFixed(1)}%</td>
+                    <td>{num2(it.sgst)}</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>{num2(it.lineTotal)}</td>
+                  </tr>
+                ))}
+                {Array.from({ length: fillerCount }).map((_, i) => (
+                  <tr key={"f" + i} className="filler-row"><td colSpan={12}>&nbsp;</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="tax-inv-bottom">
+            <div className="tax-inv-words">
+              <div>Invoice Value (In Words): <strong>{numberToWordsINR(sale.total)}</strong></div>
+              <div className="total-box">Total Invoice Rs. {money(sale.total)}</div>
+            </div>
+            <div className="tax-inv-note">Whether Tax payable on Reverse Charge Basis: <strong>No</strong></div>
+            <div className="tax-inv-sign">
+              <div>
+                Certified that the particulars given above are true and correct.
+                <div className="tax-inv-fine">
+                  * Interest @ 24% per annum will be charged if Bill is not paid within 15 days.<br />
+                  * Subject to Nalbari Jurisdiction.<br />
+                  * Payment mode: {sale.paymentMode}{sale.discount > 0 ? ` · Discount given: ${money(sale.discount)}` : ""}
+                </div>
+              </div>
+              <div className="right">
+                E.&amp;O.E
+                <div className="sig-line">For {SHOP.name}</div>
+                <div>Authorised Signatory</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="bill-foot">Thank you for shopping at Deka Electronics!</div>
+
         <div className="modal-actions no-print">
           <button className="btn btn-amber" onClick={() => window.print()}>🖨️ Print bill</button>
           <button className="btn btn-outline" onClick={onClose}>Close</button>
@@ -1577,189 +1740,4 @@ function SearchView({ state, onEditProduct }) {
               <div style={{ alignSelf: "flex-end" }}>
                 <button className="btn btn-outline" style={{ width: "100%" }} onClick={() => { setSsKw(""); setSsFrom(""); setSsTo(""); }}>Clear filters</button>
               </div>
-            </div>
-            {!sales.length ? <div className="empty"><strong>No matches</strong>Try a different keyword or date range.</div> : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Phone</th><th className="right">Total</th><th></th></tr></thead>
-                  <tbody>
-                    {sales.map(s => (
-                      <tr key={s.id}>
-                        <td className="mono">{s.invoiceNo}</td>
-                        <td>{fmtDateTime(s.date)}</td>
-                        <td>{s.customerName || "Walk-in"}</td>
-                        <td>{s.customerPhone || "—"}</td>
-                        <td className="right mono">{money(s.total)}</td>
-                        <td><button className="btn btn-outline btn-sm" onClick={() => setBillModal(s)}>View / Print</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* ─── ROOT APP ─── */
-const TABS = [
-  { id: "dashboard", label: "📊 Dashboard" },
-  { id: "stock", label: "📦 Stock" },
-  { id: "purchase", label: "📥 Purchase Entry" },
-  { id: "billing", label: "🧾 Billing" },
-  { id: "reports", label: "📈 Reports" },
-  { id: "search", label: "🔍 Advance Search" },
-];
-
-export default function App() {
-  const [state, setState] = useState({ products: [], sales: [], stockLog: [] });
-  const [tab, setTab] = useState("dashboard");
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState(null);
-  const [session, setSession] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [jumpProductId, setJumpProductId] = useState(null);
-  const [editProductTarget, setEditProductTarget] = useState(null);
-
-  const showToast = useCallback((msg, type = "ok") => {
-    setToast({ msg, type, key: Date.now() });
-  }, []);
-
-  // ── Auth: pick up existing session, and react to sign-in/sign-out ──
-  useEffect(() => {
-    if (!supabaseConfigured) { setAuthChecked(true); return; }
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthChecked(true); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  const refreshData = useCallback(async () => {
-    const data = await fetchAllData();
-    if (data) setState(data);
-    return data;
-  }, []);
-
-  // ── Initial data load once logged in ──
-  useEffect(() => {
-    if (!session) return;
-    setLoading(true);
-    refreshData().finally(() => setLoading(false));
-  }, [session, refreshData]);
-
-  // ── Live updates from other staff devices (requires Realtime enabled on these tables in Supabase) ──
-  useEffect(() => {
-    if (!session) return;
-    let debounce;
-    const onChange = () => { clearTimeout(debounce); debounce = setTimeout(refreshData, 400); };
-    const channel = supabase
-      .channel("store-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, onChange)
-      .on("postgres_changes", { event: "*", schema: "public", table: "sales" }, onChange)
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_log" }, onChange)
-      .subscribe();
-    return () => { clearTimeout(debounce); supabase.removeChannel(channel); };
-  }, [session, refreshData]);
-
-  const save = async (next) => {
-    const prev = state;
-    setState(next); // optimistic UI update
-    const ok = await syncDiff(prev, next);
-    if (!ok) showToast("Sync failed — check your internet connection.", "error");
-    return ok;
-  };
-
-  const downloadBackup = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `deka-backup-${todayStr()}.json` });
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    showToast("Backup downloaded.");
-  };
-
-  const restoreBackup = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const parsed = JSON.parse(ev.target.result);
-        const next = { products: parsed.products || [], sales: parsed.sales || [], stockLog: parsed.stockLog || [] };
-        save(next); showToast("Backup restored to the cloud database.");
-      } catch { showToast("Invalid backup file.", "error"); }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
-  const goToPurchase = (productId) => {
-    setJumpProductId(productId);
-    setTab("purchase");
-  };
-
-  const goToEditProduct = (productId) => {
-    setEditProductTarget(productId);
-    setTab("stock");
-  };
-
-  if (!supabaseConfigured) return <ConfigMissing />;
-  if (!authChecked) return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--navy)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 15, letterSpacing: ".03em" }}>
-      <style>{css}</style>
-      Checking session…
-    </div>
-  );
-  if (!session) return (<><style>{css}</style><LoginScreen onLoggedIn={() => {}} /></>);
-  if (loading) return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--navy)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 15, letterSpacing: ".03em" }}>
-      <style>{css}</style>
-      Loading your store data…
-    </div>
-  );
-
-  return (
-    <>
-      <style>{css}</style>
-      {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
-
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="brand">
-            <h1>DEKA ELECTRONICS</h1>
-            <span className="tag">Store Manager</span>
-          </div>
-          <div className="topbar-actions">
-            <span className="topbar-cats">{session.user?.email}</span>
-            <button className="btn btn-sm btn-outline" style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.2)", color: "#fff", fontSize: 12 }} onClick={downloadBackup}>⬇️ Backup</button>
-            <button className="btn btn-sm btn-outline" style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.2)", color: "#fff", fontSize: 12 }} onClick={() => supabase.auth.signOut()}>Sign out</button>
-          </div>
-        </div>
-      </header>
-
-      <nav className="tabs">
-        {TABS.map(t => (
-          <button key={t.id} className={`tab-btn${tab === t.id ? " active" : ""}`} onClick={() => setTab(t.id)}>{t.label}</button>
-        ))}
-      </nav>
-
-      <div className="main">
-        {tab === "dashboard" && <Dashboard state={state} onGoToPurchase={goToPurchase} />}
-        {tab === "stock" && <StockView state={state} onSave={save} toast={showToast} editTarget={editProductTarget} clearEditTarget={() => setEditProductTarget(null)} />}
-        {tab === "purchase" && <PurchaseView state={state} onSave={save} toast={showToast} jumpToProductId={jumpProductId} clearJump={() => setJumpProductId(null)} />}
-        {tab === "billing" && <BillingView state={state} onSave={save} toast={showToast} getNextInvoiceNo={getNextInvoiceNo} />}
-        {tab === "reports" && <ReportsView state={state} />}
-        {tab === "search" && <SearchView state={state} onEditProduct={goToEditProduct} />}
-      </div>
-
-      <footer style={{ maxWidth: 1200, margin: "0 auto", padding: "0 18px calc(30px + env(safe-area-inset-bottom, 0px))", color: "var(--muted)", fontSize: 11.5, textAlign: "center" }}>
-        Data is stored securely in your store's cloud database.{" "}
-        <button style={{ background: "none", border: "none", color: "var(--navy)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontSize: 11.5 }} onClick={downloadBackup}>Download a backup</button>
-        {" "}·{" "}
-        <label style={{ color: "var(--navy)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontSize: 11.5 }}>
-          Restore a backup
-          <input type="file" accept="application/json" style={{ display: "none" }} onChange={restoreBackup} />
-        </label>
-      </footer>
-    </>
-  );
-}
+   
