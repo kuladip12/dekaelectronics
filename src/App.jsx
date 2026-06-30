@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { supabase, supabaseConfigured } from "./supabaseClient";
 
 /* ─── CONSTANTS ─── */
-const CATEGORIES = ["AC", "Fridge / Deep Freezer", "Washing Machine", "Fan", "Other"];
+const CATEGORIES = ["AC", "Fridge / Deep Freezer", "Washing Machine", "Fan", "TV", "Other"];
 const CAT_ICON = { "AC": "❄️", "Fridge / Deep Freezer": "🧊", "Washing Machine": "🧺", "Fan": "💨", "Other": "🔌" };
 const PAYMENT_MODES = ["Cash", "Card", "UPI", "Other"];
 const COMMON_BRANDS = ["LG", "Samsung", "Voltas", "Whirlpool", "Godrej", "Haier", "Blue Star", "Daikin", "Hitachi", "Carrier", "Lloyd", "Panasonic", "IFB", "Bosch", "Crompton", "Bajaj", "Orient Electric", "Usha", "Havells", "V-Guard", "Symphony", "Onida", "Videocon"];
