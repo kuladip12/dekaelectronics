@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { supabase, supabaseConfigured } from "./supabaseClient";
 
 /* ─── CONSTANTS ─── */
@@ -224,6 +224,7 @@ const css = `
   .table-wrap table th:first-child { background: #F0EDE5; z-index: 3; }
   .table-wrap table td:first-child { background: #fff; z-index: 1; }
   .table-wrap table tr.low-stock td:first-child { background: #FFF8EC; }
+  .table-wrap table tr.cart-detail-row td:first-child { background: #FBF9F4; }
 
   /* ── Badges ── */
   .badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
@@ -344,6 +345,11 @@ const css = `
   .qty-inp:focus, .price-inp:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 2px rgba(232,163,61,.15); }
   .text-inp { min-height: 38px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; font-family: var(--sans); width: 100%; min-width: 90px; }
   .text-inp:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 2px rgba(232,163,61,.15); }
+  .cart-detail-row td { background: #FBF9F4; border-bottom: 1px solid var(--border); padding: 10px 12px 14px; }
+  .cart-detail { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .cart-serials { flex: 1 1 220px; min-width: 180px; }
+  .cart-serials label, .cart-detail .field label { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 5px; }
+  .cart-serials-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 
   /* ── GST Tax Invoice (matches the printed letterhead pad) ── */
   .tax-inv { font-size: 12px; color: #1a2540; }
@@ -1203,7 +1209,7 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
         if (ex.qty >= p.quantity) { toast("No more stock.", "error"); return prev; }
         return prev.map(c => c.productId === p.id ? { ...c, qty: c.qty + 1 } : c);
       }
-      return [...prev, { productId: p.id, name: p.name, brand: p.brand || "", category: p.category, qty: 1, price: p.sellingPrice, purchasePrice: p.purchasePrice, stockAvail: p.quantity, hsn: "", serial: "" }];
+      return [...prev, { productId: p.id, name: p.name, brand: p.brand || "", category: p.category, qty: 1, price: p.sellingPrice, purchasePrice: p.purchasePrice, stockAvail: p.quantity, hsn: "", model: p.model || "", serials: [""] }];
     });
     setBillSearch(""); setShowResults(false);
   };
@@ -1213,7 +1219,13 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
     let q = parseInt(v, 10);
     if (isNaN(q) || q < 1) q = 1;
     if (q > (p ? p.quantity : 9999)) { toast(`Only ${p.quantity} in stock.`, "error"); q = p.quantity; }
-    setCart(prev => prev.map(c => c.productId === id ? { ...c, qty: q } : c));
+    setCart(prev => prev.map(c => {
+      if (c.productId !== id) return c;
+      const serials = [...(c.serials || [])];
+      while (serials.length < q) serials.push("");
+      serials.length = q;
+      return { ...c, qty: q, serials };
+    }));
   };
 
   const updatePrice = (id, v) => {
@@ -1222,7 +1234,13 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
   };
 
   const updateHsn = (id, v) => setCart(prev => prev.map(c => c.productId === id ? { ...c, hsn: v } : c));
-  const updateSerial = (id, v) => setCart(prev => prev.map(c => c.productId === id ? { ...c, serial: v } : c));
+  const updateModel = (id, v) => setCart(prev => prev.map(c => c.productId === id ? { ...c, model: v } : c));
+  const updateSerialAt = (id, idx, v) => setCart(prev => prev.map(c => {
+    if (c.productId !== id) return c;
+    const serials = [...(c.serials || [])];
+    serials[idx] = v;
+    return { ...c, serials };
+  }));
 
   const removeFromCart = (id) => setCart(prev => prev.filter(c => c.productId !== id));
 
@@ -1322,20 +1340,45 @@ function BillingView({ state, onSave, toast, getNextInvoiceNo }) {
 
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Product</th><th className="center">Qty</th><th className="right">Price (₹)</th><th>HSN code</th><th>Model / Serial No.</th><th className="right">Total (₹)</th><th></th></tr></thead>
+            <thead><tr><th>Product</th><th className="center">Qty</th><th className="right">Price (₹)</th><th>HSN code</th><th className="right">Total (₹)</th><th></th></tr></thead>
             <tbody>
               {!cart.length ? (
-                <tr><td colSpan={7} className="empty" style={{ padding: "20px 10px" }}>Search and select products to add them to this bill.</td></tr>
+                <tr><td colSpan={6} className="empty" style={{ padding: "20px 10px" }}>Search and select products to add them to this bill.</td></tr>
               ) : cart.map(c => (
-                <tr key={c.productId}>
-                  <td>{CAT_ICON[c.category] || "🔌"} {c.brand ? <strong>{c.brand}</strong> : null}{c.brand ? " — " : ""}{c.name}</td>
-                  <td className="center"><input type="number" className="qty-inp" min={1} max={c.stockAvail} value={c.qty} onChange={e => updateQty(c.productId, e.target.value)} /></td>
-                  <td className="right"><input type="number" className="price-inp" min={0} step={0.01} value={c.price} onChange={e => updatePrice(c.productId, e.target.value)} /></td>
-                  <td><input className="text-inp" value={c.hsn} onChange={e => updateHsn(c.productId, e.target.value)} placeholder="optional" /></td>
-                  <td><input className="text-inp" value={c.serial} onChange={e => updateSerial(c.productId, e.target.value)} placeholder="optional" /></td>
-                  <td className="right mono">{money(c.qty * c.price)}</td>
-                  <td className="center"><button className="btn-ghost" onClick={() => removeFromCart(c.productId)}>✕</button></td>
-                </tr>
+                <Fragment key={c.productId}>
+                  <tr>
+                    <td>{CAT_ICON[c.category] || "🔌"} {c.brand ? <strong>{c.brand}</strong> : null}{c.brand ? " — " : ""}{c.name}</td>
+                    <td className="center"><input type="number" className="qty-inp" min={1} max={c.stockAvail} value={c.qty} onChange={e => updateQty(c.productId, e.target.value)} /></td>
+                    <td className="right"><input type="number" className="price-inp" min={0} step={0.01} value={c.price} onChange={e => updatePrice(c.productId, e.target.value)} /></td>
+                    <td><input className="text-inp" value={c.hsn} onChange={e => updateHsn(c.productId, e.target.value)} placeholder="optional" /></td>
+                    <td className="right mono">{money(c.qty * c.price)}</td>
+                    <td className="center"><button className="btn-ghost" onClick={() => removeFromCart(c.productId)}>✕</button></td>
+                  </tr>
+                  <tr className="cart-detail-row">
+                    <td colSpan={6}>
+                      <div className="cart-detail">
+                        <div className="field" style={{ maxWidth: 220 }}>
+                          <label>Model / SKU</label>
+                          <input className="text-inp" value={c.model} onChange={e => updateModel(c.productId, e.target.value)} placeholder="e.g. VLS18-TS3" />
+                        </div>
+                        <div className="cart-serials">
+                          <label>Serial number{c.qty > 1 ? "s (one per unit)" : ""}</label>
+                          <div className="cart-serials-grid">
+                            {(c.serials || [""]).map((sv, idx) => (
+                              <input
+                                key={idx}
+                                className="text-inp"
+                                value={sv}
+                                onChange={e => updateSerialAt(c.productId, idx, e.target.value)}
+                                placeholder={c.qty > 1 ? `Unit ${idx + 1} serial no.` : "Serial no. (optional)"}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -1461,7 +1504,12 @@ function BillModal({ sale, onClose }) {
                     <td>{i + 1}</td>
                     <td className="desc">
                       {it.brand ? <strong>{it.brand}</strong> : null}{it.brand ? " — " : ""}{it.name}
-                      {it.serial ? <span className="ser">Sr/Model No: {it.serial}</span> : null}
+                      {it.model ? <span className="ser">Model: {it.model}</span> : null}
+                      {(it.serials && it.serials.some(Boolean)) ? (
+                        <span className="ser">Sr. No: {it.serials.filter(Boolean).join(", ")}</span>
+                      ) : it.serial ? (
+                        <span className="ser">Sr. No: {it.serial}</span>
+                      ) : null}
                     </td>
                     <td>{it.hsn || "—"}</td>
                     <td>{it.qty}</td>
