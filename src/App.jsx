@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { supabase, supabaseConfigured } from "./supabaseClient";
 
 /* ─── CONSTANTS ─── */
-const CATEGORIES = ["AC", "Fridge / Deep Freezer", "Washing Machine", "Fan", "TV", "Other"];
+const CATEGORIES = ["AC", "Fridge / Deep Freezer", "Washing Machine", "Fan", "Other"];
 const CAT_ICON = { "AC": "❄️", "Fridge / Deep Freezer": "🧊", "Washing Machine": "🧺", "Fan": "💨", "Other": "🔌" };
 const PAYMENT_MODES = ["Cash", "Card", "UPI", "Other"];
 const COMMON_BRANDS = ["LG", "Samsung", "Voltas", "Whirlpool", "Godrej", "Haier", "Blue Star", "Daikin", "Hitachi", "Carrier", "Lloyd", "Panasonic", "IFB", "Bosch", "Crompton", "Bajaj", "Orient Electric", "Usha", "Havells", "V-Guard", "Symphony", "Onida", "Videocon"];
@@ -394,7 +394,7 @@ const css = `
     #bill-print-portal { position: absolute; top: 0; left: 0; width: 100%; background: #fff; padding: 0; }
     #bill-print-portal .modal-box { box-shadow: none; max-width: 100%; margin: 0 auto; padding: 0; }
     #bill-print-portal .table-wrap { overflow: visible; }
-    .no-print { visibility: hidden !important; }
+    .no-print { display: none !important; }
   }
 
   /* ── Phone-width refinements ── */
